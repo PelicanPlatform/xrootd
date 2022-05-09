@@ -281,6 +281,7 @@ namespace XrdCl
     bool                               encrypted;
     bool                               istpc;
     std::unique_ptr<BindPrefSelector>  bindSelector;
+    std::string                        logintoken;
     XrdSysMutex                        mutex;
   };
 
@@ -403,6 +404,7 @@ namespace XrdCl
     info->strmSelector.reset( new StreamSelector( streams ) );
     info->encrypted    = url.IsSecure();
     info->istpc        = url.IsTPC();
+    info->logintoken   = url.GetLoginToken();
   }
 
   //----------------------------------------------------------------------------
@@ -1517,9 +1519,7 @@ namespace XrdCl
     ServerResponse *rsp = (ServerResponse*)msg.GetBuffer();
     if( rsp->hdr.status == kXR_attn )
     {
-      if( rsp->body.attn.actnum != (int32_t)htonl(kXR_asynresp) )
-        return NoAction;
-      rsp = (ServerResponse*)msg.GetBuffer(16);
+      return NoAction;
     }
 
     if( info->sidManager->IsTimedOut( rsp->hdr.streamid ) )
@@ -2098,7 +2098,7 @@ namespace XrdCl
   // Generate the login message
   //----------------------------------------------------------------------------
   Message *XRootDTransport::GenerateLogIn( HandShakeData *hsData,
-                                           XRootDChannelInfo * )
+                                           XRootDChannelInfo *info )
   {
     Log *log = DefaultEnv::GetLog();
     Env *env = DefaultEnv::GetEnv();
@@ -2109,15 +2109,25 @@ namespace XrdCl
     int timeZone = XrdSysTimer::TimeZone();
     char *hostName = XrdNetUtils::MyHostName();
     std::string countryCode = Utils::FQDNToCC( hostName );
-    char *cgiBuffer = new char[1024];
+    char *cgiBuffer = new char[1024 + info->logintoken.size()];
     std::string appName;
     std::string monInfo;
     env->GetString( "AppName", appName );
     env->GetString( "MonInfo", monInfo );
-    snprintf( cgiBuffer, 1024,
-              "?xrd.cc=%s&xrd.tz=%d&xrd.appname=%s&xrd.info=%s&"
-              "xrd.hostname=%s&xrd.rn=%s", countryCode.c_str(), timeZone,
-              appName.c_str(), monInfo.c_str(), hostName, XrdVERSION );
+    if( info->logintoken.empty() )
+    {
+      snprintf( cgiBuffer, 1024,
+                "xrd.cc=%s&xrd.tz=%d&xrd.appname=%s&xrd.info=%s&"
+                "xrd.hostname=%s&xrd.rn=%s", countryCode.c_str(), timeZone,
+                appName.c_str(), monInfo.c_str(), hostName, XrdVERSION );
+    }
+    else
+    {
+      snprintf( cgiBuffer, 1024,
+                "xrd.cc=%s&xrd.tz=%d&xrd.appname=%s&xrd.info=%s&"
+                "xrd.hostname=%s&xrd.rn=%s&%s", countryCode.c_str(), timeZone,
+                appName.c_str(), monInfo.c_str(), hostName, XrdVERSION, info->logintoken.c_str() );
+    }
     uint16_t cgiLen = strlen( cgiBuffer );
     free( hostName );
 

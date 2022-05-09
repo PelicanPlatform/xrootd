@@ -740,8 +740,11 @@ bool XrdHttpReq::Redir(XrdXrootd::Bridge::Context &info, //!< the result context
   
   TRACE(REQ, " XrdHttpReq::Redir Redirecting to " << redirdest.c_str());
 
-  prot->SendSimpleResp(302, NULL, (char *) redirdest.c_str(), 0, 0, keepalive);
-
+  if (request != rtGET)
+    prot->SendSimpleResp(307, NULL, (char *) redirdest.c_str(), 0, 0, keepalive);
+  else
+    prot->SendSimpleResp(302, NULL, (char *) redirdest.c_str(), 0, 0, keepalive);
+  
   reset();
   return false;
 };
@@ -880,15 +883,47 @@ void XrdHttpReq::appendOpaque(XrdOucString &s, XrdSecEntity *secent, char *hash,
 
 }
 
-// Extracts the opaque info from the given url
 
+// Sanitize the resource from the http[s]://[host]/ questionable prefix
+// https://github.com/xrootd/xrootd/issues/1675
+void XrdHttpReq::sanitizeResourcePfx() {
+  
+  if (resource.beginswith("https://")) {
+    // Find the slash that follows the hostname, and keep it
+    int p = resource.find('/', 8);
+    resource.erasefromstart(p);
+    return;
+  }
+  
+  if (resource.beginswith("http://")) {
+    // Find the slash that follows the hostname, and keep it
+    int p = resource.find('/', 7);
+    resource.erasefromstart(p);
+    return;
+  }
+}
+
+
+// Parse a resource line:
+// - sanitize
+// - extracts the opaque info from the given url
+// - sanitize the resource from http[s]://[host]/ questionable prefix
 void XrdHttpReq::parseResource(char *res) {
+
+
+
+
   // Look for the first '?'
   char *p = strchr(res, '?');
   
   // Not found, then it's just a filename
   if (!p) {
     resource.assign(res, 0);
+    
+    // Some poor client implementations may inject a http[s]://[host]/ prefix
+    // to the resource string. Here we choose to ignore it as a protection measure
+    sanitizeResourcePfx();  
+    
     char *buf = unquote((char *)resource.c_str());
     resource.assign(buf, 0);
     resourceplusopaque.assign(buf, 0);
@@ -909,7 +944,11 @@ void XrdHttpReq::parseResource(char *res) {
 
   int cnt = p - res; // Number of chars to copy
   resource.assign(res, 0, cnt - 1);
-
+  
+  // Some poor client implementations may inject a http[s]://[host]/ prefix
+  // to the resource string. Here we choose to ignore it as a protection measure
+  sanitizeResourcePfx();  
+  
   char *buf = unquote((char *)resource.c_str());
   resource.assign(buf, 0);
   free(buf);
@@ -2686,8 +2725,12 @@ int XrdHttpReq::PostProcessHTTPReq(bool final_) {
     {
 
       if (xrdresp != kXR_ok) {
-        prot->SendSimpleResp(httpStatusCode, NULL, NULL,
-                             httpStatusText.c_str(), httpStatusText.length(), false);
+        if (xrderrcode == kXR_ItExists) {
+          prot->SendSimpleResp(405, NULL, NULL, (char *) "Method is not allowed; resource already exists.", 0, false);
+        } else {
+          prot->SendSimpleResp(httpStatusCode, NULL, NULL,
+                               httpStatusText.c_str(), httpStatusText.length(), false);
+        }
         return -1;
       }
 

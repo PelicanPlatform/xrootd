@@ -44,7 +44,6 @@ jobs:
             systemd-devel \
             zlib-devel \
             devtoolset-7-gcc-c++ \
-            which \
             python3-devel \
             python3-setuptools \
             git \
@@ -63,7 +62,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr/local/ \
             -DPYTHON_EXECUTABLE=$(command -v python3) \
             -DENABLE_TESTS=ON \
-            -DPIP_VERBOSE=ON \
+            -DPIP_OPTIONS="--verbose" \
             -S xrootd \
             -B build
         cmake3 build -LH
@@ -116,7 +115,6 @@ jobs:
             systemd-devel \
             zlib-devel \
             devtoolset-7-gcc-c++ \
-            which \
             python3-devel \
             python3-setuptools \
             git \
@@ -128,6 +126,8 @@ jobs:
     - name: Clone repository now that Git is available
       uses: actions/checkout@v1
 
+    # Use extra PIP_OPTIONS strings as example that this is possible.
+    # N.B.: None of the PIP_OPTIONS are required for this step to work.
     - name: Build with cmake
       run: |
         . /opt/rh/devtoolset-7/enable
@@ -136,7 +136,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr/local/ \
             -DPYTHON_EXECUTABLE=$(command -v python3) \
             -DENABLE_TESTS=ON \
-            -DPIP_VERBOSE=ON \
+            -DPIP_OPTIONS="--verbose --force-reinstall --prefix /usr/local/" \
             -S xrootd \
             -B build
         cmake3 build -LH
@@ -181,7 +181,6 @@ jobs:
             systemd-devel \
             zlib-devel \
             devtoolset-7-gcc-c++ \
-            which \
             python2-pip \
             python2-setuptools \
             python2-devel \
@@ -204,7 +203,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr/ \
             -DPYTHON_EXECUTABLE=$(command -v python2) \
             -DENABLE_TESTS=ON \
-            -DPIP_VERBOSE=ON \
+            -DPIP_OPTIONS="--verbose" \
             -S xrootd \
             -B build
         cmake3 build -LH
@@ -253,7 +252,7 @@ jobs:
         python3 -m pip --no-cache-dir install --upgrade pip setuptools wheel
 
     - name: Clone repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
 
@@ -264,7 +263,7 @@ jobs:
             -DCMAKE_INSTALL_PREFIX=/usr/local/ \
             -DPYTHON_EXECUTABLE=$(command -v python3) \
             -DENABLE_TESTS=ON \
-            -DPIP_VERBOSE=ON \
+            -DPIP_OPTIONS="--verbose" \
             -S xrootd \
             -B build
         cmake build -LH
@@ -283,8 +282,71 @@ jobs:
     - name: Verify Python bindings
       run: |
         export LD_LIBRARY_PATH="/usr/local/lib:${LD_LIBRARY_PATH}"
-        export PYTHON_VERSION_MINOR=$(_tmp=$(find /usr/local/lib/ -type d -iname "python*") && echo ${_tmp: -3}; unset _tmp)
-        export PYTHONPATH="/usr/local/lib/python${PYTHON_VERSION_MINOR}/site-packages:${PYTHONPATH}"
+        export PYTHON_VERSION_MINOR=$(python3 -c 'import sys; print(f"{sys.version_info.minor}")')
+        export PYTHONPATH="/usr/local/lib/python3.${PYTHON_VERSION_MINOR}/site-packages:${PYTHONPATH}"
+        python3 -m pip list
+        python3 -m pip show xrootd
+        python3 -c 'import XRootD; print(XRootD)'
+        python3 -c 'import pyxrootd; print(pyxrootd)'
+        python3 -c 'from XRootD import client; print(client.FileSystem("root://someserver:1094"))'
+
+  cmake-macos:
+
+    runs-on: macos-latest
+
+    steps:
+    - name: Install external dependencies with homebrew
+      run: |
+        brew install \
+          cmake \
+          make \
+          gcc \
+          zlib \
+          krb5 \
+          ossp-uuid \
+          libxml2 \
+          openssl@3
+
+    - name: Install necessary Python libraries
+      run: |
+        python3 -m pip install --upgrade pip setuptools wheel
+        python3 -m pip list
+
+    - name: Clone repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    # Given how homebrew installs things, openssl needs to be have its locations
+    # be given explicitly.
+    - name: Build with cmake
+      run: |
+        cd ..
+        cmake \
+            -DCMAKE_INSTALL_PREFIX=/usr/local/ \
+            -DOPENSSL_SSL_LIBRARY=$(find $(find $(brew --cellar openssl) -type d -iname "lib") -type f -iname "libssl*.dylib") \
+            -DOPENSSL_CRYPTO_LIBRARY=$(find $(find $(brew --cellar openssl) -type d -iname "lib") -type f -iname "libcrypto*.dylib") \
+            -DOPENSSL_INCLUDE_DIR=$(find $(brew --cellar openssl) -type d -iname "include") \
+            -DPYTHON_EXECUTABLE=$(command -v python3) \
+            -DENABLE_TESTS=ON \
+            -DPIP_OPTIONS="--verbose" \
+            -S xrootd \
+            -B build
+        cmake build -LH
+        cmake \
+            --build build \
+            --clean-first \
+            --parallel $(($(sysctl -n hw.ncpu) - 1))
+        cmake --build build --target install
+        python3 -m pip list
+
+    - name: Verify install
+      run: |
+        command -v xrootd
+        command -v xrdcp
+
+    - name: Verify Python bindings
+      run: |
         python3 -m pip list
         python3 -m pip show xrootd
         python3 -c 'import XRootD; print(XRootD)'
@@ -308,7 +370,6 @@ jobs:
         yum install --nogpg -y \
             gcc-c++ \
             rpm-build \
-            which \
             git \
             python-srpm-macros \
             centos-release-scl
@@ -378,14 +439,13 @@ jobs:
         dnf install --nogpg -y \
             gcc-c++ \
             rpm-build \
-            which \
             tar \
             dnf-plugins-core \
             git
         dnf clean all
 
     - name: Clone repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
 
@@ -401,7 +461,6 @@ jobs:
           --define "_rpmdir RPMS/" \
           --define "_with_python3 1" \
           --define "_with_ceph11 1" \
-          --define "_with_openssl3 1" \
           --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" \
           *.src.rpm
 
@@ -445,7 +504,7 @@ jobs:
         sudo apt-get autoclean -y
 
     - name: Clone repository
-      uses: actions/checkout@v2
+      uses: actions/checkout@v3
       with:
         fetch-depth: 0
 
@@ -508,7 +567,6 @@ jobs:
             systemd-devel \
             zlib-devel \
             devtoolset-7-gcc-c++ \
-            which \
             python3-devel \
             python3-setuptools \
             git \
@@ -556,7 +614,6 @@ jobs:
             systemd-devel \
             zlib-devel \
             devtoolset-7-gcc-c++ \
-            which \
             python3-devel \
             python3-setuptools \
             git \
@@ -579,6 +636,60 @@ jobs:
 
     - name: Verify Python bindings
       run: |
+        python3 -m pip list
+        python3 -m pip show xrootd
+        python3 -c 'import XRootD; print(XRootD)'
+        python3 -c 'import pyxrootd; print(pyxrootd)'
+        python3 -c 'from XRootD import client; print(client.FileSystem("root://someserver:1094"))'
+
+  sdist-ubuntu:
+
+    # Use of sudo as https://github.com/actions/virtual-environments requires it
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Install external dependencies with apt-get
+      run: |
+        sudo apt-get update -y
+        DEBIAN_FRONTEND=noninteractive sudo apt-get install -y \
+          g++ \
+          git \
+          cmake \
+          uuid-dev \
+          dpkg-dev \
+          libssl-dev \
+          libx11-dev \
+          python3 \
+          python3-pip \
+          python3-venv \
+          python3-dev \
+          pkg-config \
+          tree
+        sudo apt-get autoclean -y
+        python3 -m pip --no-cache-dir install --upgrade pip setuptools wheel
+        python3 -m pip list
+
+    - name: Clone repository
+      uses: actions/checkout@v3
+      with:
+        fetch-depth: 0
+
+    - name: Build sdist using publishing workflow
+      run: |
+        cp packaging/wheel/* .
+        ./publish.sh
+        python3 -m pip --verbose install ./dist/xrootd-*.tar.gz
+        python3 -m pip list
+
+    - name: Show site-pacakges layout for XRootD modules
+      run: |
+        find $(python3 -c 'import XRootD; import pathlib; print(str(pathlib.Path(XRootD.__path__[0]).parent))') \
+          -type d \
+          -iname "*xrootd*" | xargs tree
+
+    - name: Verify Python bindings
+      run: |
+        python3 --version --version
         python3 -m pip list
         python3 -m pip show xrootd
         python3 -c 'import XRootD; print(XRootD)'
