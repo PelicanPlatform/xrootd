@@ -100,6 +100,7 @@ BuildRequires: libcurl-devel
 BuildRequires: libuuid-devel
 BuildRequires: voms-devel >= 2.0.6
 BuildRequires: git
+BuildRequires: pkgconfig
 %if %{have_macaroons}
 BuildRequires: libmacaroons-devel
 %endif
@@ -376,6 +377,7 @@ Python 2 bindings for XRootD
 %package -n python%{python3_pkgversion}-%{name}
 Summary:       Python 3 bindings for XRootD
 Group:         Development/Libraries
+%{?python_provide:%python_provide python%{python3_pkgversion}-%{name}}
 Requires:      %{name}-client-libs%{?_isa} = %{epoch}:%{version}-%{release}
 
 %description -n python%{python3_pkgversion}-%{name}
@@ -560,9 +562,6 @@ cmake  \
 %endif
 %if %{?_with_isal:1}%{!?_with_isal:0}
       -DENABLE_XRDEC=TRUE \
-%endif
-%if %{?_with_openssl3:1}%{!?_with_openssl3:0}
-      -DWITH_OPENSSL3=TRUE \
 %endif
 %if %{python3only}
       -DXRD_PYTHON_REQ_VERSION=%{python3_pkgversion} \

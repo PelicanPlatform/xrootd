@@ -373,7 +373,7 @@ public:
                 ss << grp << " ";
             }
             const auto &groups_str = ss.str();
-            new_secentity.grps = static_cast<char*>(malloc(groups_str.size()));
+            new_secentity.grps = static_cast<char*>(malloc(groups_str.size() + 1));
             if (new_secentity.grps) {
                 memcpy(new_secentity.grps, groups_str.c_str(), groups_str.size());
                 new_secentity.grps[groups_str.size()] = '\0';
@@ -406,6 +406,7 @@ public:
         if (mapping_success) {
             // Set scitokens.name in the extra attribute
             Entity->eaAPI->Add("request.name", username, true);
+            new_secentity.eaAPI->Add("request.name", username, true);
         }
 
             // Make the token subject available.  Even though it's a reasonably bad idea
@@ -690,6 +691,7 @@ private:
                 MakeCanonical(base_path + acl_path, path);
                 if (!strcmp(acl_authz, "read")) {
                     xrd_rules.emplace_back(AOP_Read, path);
+                    xrd_rules.emplace_back(AOP_Readdir, path);
                     xrd_rules.emplace_back(AOP_Stat, path);
                 } else if (!strcmp(acl_authz, "write")) {
                     xrd_rules.emplace_back(AOP_Update, path);

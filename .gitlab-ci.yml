@@ -35,12 +35,41 @@ stages:
   tags:
     - docker_node
 
+build:cs9:
+  stage: build:rpm
+  image: gitlab-registry.cern.ch/linuxsupport/cs9-base
+  script:
+    - dnf install -y epel-release
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
+    - dnf install -y cppunit-devel
+    - cd packaging/
+    - ./makesrpm.sh --define "_with_python3 1" --define "_with_tests 1" --define "_without_xrootd_user 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" -D "dist .el9"
+    - dnf builddep --nogpgcheck -y *.src.rpm
+    - rpmbuild --rebuild --define "_rpmdir RPMS/" --define "_with_python3 1" --define "_with_tests 1" --define "_without_xrootd_user 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" -D "dist .el9" *.src.rpm
+    - cd ..
+    - mkdir cs-9
+    - cp packaging/RPMS/*.rpm cs-9
+    - cp packaging/*src.rpm   cs-9
+  artifacts:
+    expire_in: 1 day
+    paths:
+    - cs-9/
+  tags:
+    - docker_node
+  only:
+    - master
+    - /^stable-.*$/
+  except:
+    - tags
+    - schedules
+    - web
+
 build:cs8:
   stage: build:rpm
   image: gitlab-registry.cern.ch/linuxsupport/cs8-base
   script:
     - dnf install -y epel-release
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
     - dnf config-manager --set-enabled powertools
     - cd packaging
     - ./makesrpm.sh --define "_with_python3 1" --define "_with_tests 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1"
@@ -65,13 +94,14 @@ build:cs8:
     - tags
     - schedules
     - web
+  allow_failure: true
 
 build:cc7:
   stage: build:rpm
   image: gitlab-registry.cern.ch/linuxsupport/cc7-base
   script:
     - head -n -6 /etc/yum.repos.d/epel.repo > /tmp/epel.repo ; mv -f /tmp/epel.repo /etc/yum.repos.d/epel.repo
-    - yum install --nogpg -y gcc-c++ rpm-build which git python-srpm-macros centos-release-scl
+    - yum install --nogpg -y gcc-c++ rpm-build git python-srpm-macros centos-release-scl
     - cd packaging/
     - ./makesrpm.sh --define "_with_python3 1" --define "_with_tests 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" --define "_with_isal 1"
     - yum-builddep --nogpgcheck -y *.src.rpm
@@ -99,7 +129,7 @@ build:cc7:
 #  stage: build:rpm
 #  image: fedora:36
 #  script:
-#    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git
+#    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
 #    - cd packaging/
 #    - ./makesrpm.sh --define "_with_python3 1" --define "_with_xrdclhttp 1" --define "_with_ceph11 1"
 #    - dnf builddep --nogpgcheck -y *.src.rpm
@@ -127,12 +157,12 @@ build:fedorai-35:
   stage: build:rpm
   image: fedora:35
   script:
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
     - cd packaging/
     - ./makesrpm.sh --define "_with_python3 1" --define "_with_ceph11 1"
     - dnf builddep --nogpgcheck -y *.src.rpm
     - mkdir RPMS
-    - rpmbuild --rebuild --define "_rpmdir RPMS/" --define "_with_python3 1" --define "_with_ceph11 1" --define "_with_openssl3 1" --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" *.src.rpm
+    - rpmbuild --rebuild --define "_rpmdir RPMS/" --define "_with_python3 1" --define "_with_ceph11 1" --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" *.src.rpm
     - cd ..
     - mkdir fc-35/
     - cp packaging/*.src.rpm fc-35
@@ -155,7 +185,7 @@ build:fedora-34:
   stage: build:rpm
   image: fedora:34
   script:
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
     - cd packaging/
     - ./makesrpm.sh --define "_with_python3 1" --define "_with_xrdclhttp 1" --define "_with_ceph11 1"
     - dnf builddep --nogpgcheck -y *.src.rpm
@@ -183,7 +213,7 @@ build:fedora-33:
   stage: build:rpm
   image: fedora:33
   script:
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git
     - cd packaging/
     - ./makesrpm.sh --define "_with_python3 1" --define "_with_xrdclhttp 1" --define "_with_ceph11 1"
     - dnf builddep --nogpgcheck -y *.src.rpm
@@ -269,7 +299,7 @@ release:cs8-x86_64:
   image: gitlab-registry.cern.ch/linuxsupport/cs8-base
   script:
     - dnf install -y epel-release
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git python-macros
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git python-macros
     - dnf config-manager --set-enabled powertools
     - dnf install -y cppunit-devel
     - dnf -y update libarchive
@@ -301,7 +331,7 @@ release:rocky8-x86_64:
   image: rockylinux:8
   script:
     - dnf install -y epel-release
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git python-macros
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git python-macros
     - dnf config-manager --set-enabled powertools
     - dnf install -y cppunit-devel
     - dnf -y update libarchive
@@ -333,13 +363,13 @@ release:cc7-x86_64:
   image: gitlab-registry.cern.ch/linuxsupport/cc7-base
   script:
     - head -n -6 /etc/yum.repos.d/epel.repo > /tmp/epel.repo ; mv -f /tmp/epel.repo /etc/yum.repos.d/epel.repo
-    - yum install --nogpg -y gcc-c++ rpm-build which git python-srpm-macros centos-release-scl
+    - yum install --nogpg -y gcc-c++ rpm-build git python-srpm-macros centos-release-scl
     - mkdir cc-7-x86_64
     - ./gen-tarball.sh $CI_COMMIT_TAG
     - mv xrootd-${CI_COMMIT_TAG#"v"}.tar.gz cc-7-x86_64
     - cd packaging/
     - git checkout tags/${CI_COMMIT_TAG}
-    - ./makesrpm.sh --define "_with_python3 1" --define "_with_tests 1" --define "_without_xrootd_user 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" --define "_with_isal 1" -D "dist .el7" 
+    - ./makesrpm.sh --define "_with_python3 1" --define "_with_tests 1" --define "_without_xrootd_user 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" --define "_with_isal 1" -D "dist .el7"
     - yum-builddep --nogpgcheck -y *.src.rpm
     - mkdir RPMS
     - rpmbuild --rebuild --define "_rpmdir RPMS/" --define "_with_python3 1" --define "_with_tests 1" --define "_without_xrootd_user 1" --define "_with_xrdclhttp 1" --define "_with_scitokens 1" --define "_with_isal 1" --define "_build_name_fmt %%{NAME}-%%{VERSION}-%%{RELEASE}.%%{ARCH}.rpm" -D "dist .el7" *.src.rpm
@@ -382,7 +412,7 @@ release:pypi:
   stage: build:rpm
   image: gitlab-registry.cern.ch/linuxsupport/cc7-base
   script:
-    - yum install --nogpg -y git python3-pip which
+    - yum install --nogpg -y git python3-pip
     - cp packaging/wheel/* .
     - ./publish.sh
   artifacts:
@@ -418,7 +448,7 @@ weekly:cs8:
   image: gitlab-registry.cern.ch/linuxsupport/cs8-base
   script:
     - dnf install -y epel-release
-    - dnf install --nogpg -y gcc-c++ rpm-build which tar dnf-plugins-core git python-macros
+    - dnf install --nogpg -y gcc-c++ rpm-build tar dnf-plugins-core git python-macros
     - dnf config-manager --set-enabled powertools
     - dnf install -y cppunit-devel
     - dnf -y update libarchive
@@ -453,8 +483,8 @@ weekly:cc7:
   image: gitlab-registry.cern.ch/linuxsupport/cc7-base
   script:
     - head -n -6 /etc/yum.repos.d/epel.repo > /tmp/epel.repo ; mv -f /tmp/epel.repo /etc/yum.repos.d/epel.repo
-    - yum install --nogpg -y gcc-c++ rpm-build which git cppunit-devel python-srpm-macros centos-release-scl
-    - xrootd_version=$(git for-each-ref --sort=taggerdate --format '%(refname)' refs/tags | grep '^refs/tags/v' | grep -v 'rc.*$' | grep -v 'osghotfix' | grep -v 'CERN$' | sed -e '$!d')
+    - yum install --nogpg -y gcc-c++ rpm-build git cppunit-devel python-srpm-macros centos-release-scl
+    - xrootd_version=$(git for-each-ref --sort=taggerdate --format '%(refname)' refs/tags | grep '^refs/tags/v5' | grep -v 'rc.*$' | grep -v 'osghotfix' | grep -v 'CERN$' | sed -e '$!d')
     - xrootd_version=${xrootd_version:11}
     - echo $xrootd_version
     - short_hash=$(git rev-parse --verify HEAD | awk '{print substr($0, 0, 8)}')

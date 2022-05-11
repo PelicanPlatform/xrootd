@@ -33,6 +33,7 @@
 #include "XrdCl/XrdClLog.hh"
 #include "XrdCl/XrdClConstants.hh"
 #include "XrdCl/XrdClAsyncPageReader.hh"
+#include "XrdCl/XrdClAsyncVectorReader.hh"
 
 #include "XrdSys/XrdSysPthread.hh"
 #include "XrdSys/XrdSysPageSize.hh"
@@ -160,13 +161,6 @@ namespace XrdCl
         pPgWrtCurrentPageOffset( 0 ),
         pPgWrtCurrentPageNb( 0 ),
 
-        pReadVRawMsgOffset( 0 ),
-        pReadVRawChunkHeaderDone( false ),
-        pReadVRawChunkHeaderStarted( false ),
-        pReadVRawSizeError( false ),
-        pReadVRawChunkIndex( 0 ),
-        pReadVRawMsgDiscard( false ),
-
         pOtherRawStarted( false ),
 
         pFollowMetalink( false ),
@@ -192,7 +186,6 @@ namespace XrdCl
         pPostMaster = DefaultEnv::GetPostMaster();
         if( msg->GetSessionId() )
           pHasSessionId = true;
-        memset( &pReadVRawChunkHeader, 0, sizeof( readahead_list ) );
 
         Log *log = DefaultEnv::GetLog();
         log->Debug( ExDbgMsg, "[%s] MsgHandler created: 0x%x (message: %s ).",
@@ -205,6 +198,11 @@ namespace XrdCl
           ClientPgReadRequest *pgrdreq = (ClientPgReadRequest*)pRequest->GetBuffer();
           pCrc32cDigests.reserve( XrdOucPgrwUtils::csNum( ntohll( pgrdreq->offset ),
                                                          ntohl( pgrdreq->rlen ) ) );
+        }
+
+        if( ntohs( hdr->requestid ) == kXR_readv )
+        {
+          pVectorReader.reset( new AsyncVectorReader( *url ) );
         }
       }
 
@@ -389,6 +387,8 @@ namespace XrdCl
       void SetChunkList( ChunkList *chunkList )
       {
         pChunkList = chunkList;
+        if( pVectorReader )
+          pVectorReader->SetChunkList( chunkList );
         if( chunkList )
           pChunkStatus.resize( chunkList->size() );
         else
@@ -438,22 +438,13 @@ namespace XrdCl
       //------------------------------------------------------------------------
       //! Handle a kXR_read in raw mode
       //------------------------------------------------------------------------
-      Status ReadRawRead( Message  *msg,
-                          Socket   *socket,
+      Status ReadRawRead( Socket   *socket,
                           uint32_t &bytesRead );
-
-      //------------------------------------------------------------------------
-      //! Handle a kXR_readv in raw mode
-      //------------------------------------------------------------------------
-      Status ReadRawReadV( Message  *msg,
-                           Socket   *socket,
-                           uint32_t &bytesRead );
 
       //------------------------------------------------------------------------
       //! Handle anything other than kXR_read and kXR_readv in raw mode
       //------------------------------------------------------------------------
-      Status ReadRawOther( Message  *msg,
-                           Socket   *socket,
+      Status ReadRawOther( Socket   *socket,
                            uint32_t &bytesRead );
 
       //------------------------------------------------------------------------
@@ -518,16 +509,6 @@ namespace XrdCl
       //! Some requests need to be rewritten also after getting kXR_wait - sigh
       //------------------------------------------------------------------------
       Status RewriteRequestWait();
-
-      //------------------------------------------------------------------------
-      //! Post process vector read
-      //------------------------------------------------------------------------
-      Status PostProcessReadV( VectorReadInfo *vReadInfo );
-
-      //------------------------------------------------------------------------
-      //! Unpack a single readv response
-      //------------------------------------------------------------------------
-      Status UnPackReadVResponse( Message &msg );
 
       //------------------------------------------------------------------------
       //! Update the "tried=" part of the CGI of the current message
@@ -648,126 +629,93 @@ namespace XrdCl
         return pgcnt;
       }
 
-      inline void Copy( uint32_t offchlst, char *buffer, size_t length )
-      {
-        auto itr = pChunkList->begin();
-        while( length > 0 )
-        {
-          // first find the right buffer
-          char   *dstbuf = nullptr;
-          size_t  cplen = 0;
-          for( ; itr != pChunkList->end() ; ++itr )
-          {
-            if( offchlst < itr->offset ||
-                offchlst >= itr->offset + itr->length )
-              continue;
-            size_t dstoff = offchlst - itr->offset;
-            dstbuf = reinterpret_cast<char*>( itr->buffer ) + dstoff;
-            cplen = itr->length - cplen;
-            break;
-          }
-          // now do the copy
-          if( cplen > length ) cplen = length;
-          memcpy( dstbuf, buffer, cplen );
-          buffer += cplen;
-          length -= cplen;
-        }
-      }
+      Message                               *pRequest;
+      std::shared_ptr<Message>               pResponse; //< the ownership is shared with MsgReader
+      std::vector<std::shared_ptr<Message>>  pPartialResps; //< the ownership is shared with MsgReader
+      ResponseHandler                       *pResponseHandler;
+      URL                                    pUrl;
+      URL                                   *pEffectiveDataServerUrl;
+      PostMaster                            *pPostMaster;
+      std::shared_ptr<SIDManager>            pSidMgr;
+      LocalFileHandler                      *pLFileHandler;
+      XRootDStatus                           pStatus;
+      Status                                 pLastError;
+      time_t                                 pExpiration;
+      bool                                   pRedirectAsAnswer;
+      bool                                   pOksofarAsAnswer;
+      std::unique_ptr<HostList>              pHosts;
+      bool                                   pHasLoadBalancer;
+      HostInfo                               pLoadBalancer;
+      bool                                   pHasSessionId;
+      std::string                            pRedirectUrl;
+      ChunkList                             *pChunkList;
+      std::vector<uint32_t>                  pCrc32cDigests;
+      XrdSys::KernelBuffer                  *pKBuff;
+      std::vector<ChunkStatus>               pChunkStatus;
+      uint16_t                               pRedirectCounter;
+      uint16_t                               pNotAuthorizedCounter;
 
-      Message                        *pRequest;
-      std::shared_ptr<Message>        pResponse; //< the ownership is shared with MsgReader
-      std::vector<std::shared_ptr<Message>> pPartialResps; //< the ownership is shared with MsgReader
-      ResponseHandler                *pResponseHandler;
-      URL                             pUrl;
-      URL                            *pEffectiveDataServerUrl;
-      PostMaster                     *pPostMaster;
-      std::shared_ptr<SIDManager>     pSidMgr;
-      LocalFileHandler               *pLFileHandler;
-      XRootDStatus                    pStatus;
-      Status                          pLastError;
-      time_t                          pExpiration;
-      bool                            pRedirectAsAnswer;
-      bool                            pOksofarAsAnswer;
-      std::unique_ptr<HostList>       pHosts;
-      bool                            pHasLoadBalancer;
-      HostInfo                        pLoadBalancer;
-      bool                            pHasSessionId;
-      std::string                     pRedirectUrl;
-      ChunkList                      *pChunkList;
-      std::vector<uint32_t>           pCrc32cDigests;
-      XrdSys::KernelBuffer           *pKBuff;
-      std::vector<ChunkStatus>        pChunkStatus;
-      uint16_t                        pRedirectCounter;
-      uint16_t                        pNotAuthorizedCounter;
+      uint32_t                               pAsyncOffset;
+      uint32_t                               pAsyncChunkOffset;
+      uint32_t                               pAsyncChunkIndex;
+      uint32_t                               pAsyncReadSize;
+      char*                                  pAsyncReadBuffer;
+      uint32_t                               pAsyncMsgSize;
 
-      uint32_t                        pAsyncOffset;
-      uint32_t                        pAsyncChunkOffset;
-      uint32_t                        pAsyncChunkIndex;
-      uint32_t                        pAsyncReadSize;
-      char*                           pAsyncReadBuffer;
-      uint32_t                        pAsyncMsgSize;
+      bool                                   pReadRawStarted;
+      uint32_t                               pReadRawCurrentOffset;
 
-      bool                            pReadRawStarted;
-      uint32_t                        pReadRawCurrentOffset;
+      std::unique_ptr<AsyncPageReader>       pPageReader;
+      std::unique_ptr<AsyncVectorReader>     pVectorReader;
 
-      std::unique_ptr<AsyncPageReader> pPageReader;
+      Buffer                                 pPgWrtCksumBuff;
+      uint32_t                               pPgWrtCurrentPageOffset;
+      uint32_t                               pPgWrtCurrentPageNb;
 
-      Buffer                          pPgWrtCksumBuff;
-      uint32_t                        pPgWrtCurrentPageOffset;
-      uint32_t                        pPgWrtCurrentPageNb;
+      bool                                   pOtherRawStarted;
 
-      uint32_t                        pReadVRawMsgOffset;
-      bool                            pReadVRawChunkHeaderDone;
-      bool                            pReadVRawChunkHeaderStarted;
-      bool                            pReadVRawSizeError;
-      int32_t                         pReadVRawChunkIndex;
-      readahead_list                  pReadVRawChunkHeader;
-      bool                            pReadVRawMsgDiscard;
+      bool                                   pFollowMetalink;
 
-      bool                            pOtherRawStarted;
+      bool                                   pStateful;
+      int                                    pAggregatedWaitTime;
 
-      bool                            pFollowMetalink;
+      std::unique_ptr<RedirectEntry>         pRdirEntry;
+      RedirectTraceBack                      pRedirectTraceBack;
 
-      bool                            pStateful;
-      int                             pAggregatedWaitTime;
-
-      std::unique_ptr<RedirectEntry>  pRdirEntry;
-      RedirectTraceBack               pRedirectTraceBack;
-
-      bool                            pMsgInFly;
+      bool                                   pMsgInFly;
 
       //------------------------------------------------------------------------
       // true if MsgHandler is both in inQueue and installed in respective
       // Stream (this could happen if server gave oksofar response), otherwise
       // false
       //------------------------------------------------------------------------
-      std::atomic<bool>               pTimeoutFence;
+      std::atomic<bool>                      pTimeoutFence;
 
       //------------------------------------------------------------------------
       // if we are serving chunked data to the user's handler in case of
       // kXR_dirlist we need to memorize if the response contains stat info or
       // not (the information is only encoded in the first chunk)
       //------------------------------------------------------------------------
-      bool                            pDirListStarted;
-      bool                            pDirListWithStat;
+      bool                                   pDirListStarted;
+      bool                                   pDirListWithStat;
 
       //------------------------------------------------------------------------
       // synchronization is needed in case the MsgHandler has been configured
       // to serve kXR_oksofar as a response to the user's handler
       //------------------------------------------------------------------------
-      XrdSysCondVar                   pCV;
+      XrdSysCondVar                          pCV;
 
       //------------------------------------------------------------------------
       // Count of consecutive `errTlsSslError` errors
       //------------------------------------------------------------------------
-      size_t                          pSslErrCnt;
+      size_t                                 pSslErrCnt;
 
       //------------------------------------------------------------------------
       // Keep track if respective parts of kXR_status response have been
       // unmarshaled.
       //------------------------------------------------------------------------
-      bool                            pRspStatusBodyUnMarshaled;
-      bool                            pRspPgWrtRetrnsmReqUnMarshalled;
+      bool                                   pRspStatusBodyUnMarshaled;
+      bool                                   pRspPgWrtRetrnsmReqUnMarshalled;
   };
 }
 

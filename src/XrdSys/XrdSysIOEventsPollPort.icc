@@ -196,6 +196,12 @@ void XrdSys::IOEvents::PollPort::Begin(XrdSysSemaphore *syncsem,
             if (rc)
                {if (errno == ETIME || !errno) CbkTMO();
                    else {int rc = errno;
+                         //--------------------------------------------------------------
+                         // If we are in a child process and the poll file descriptor
+                         // has been closed, there is an immense chance the fork will be
+                         // followed by an exec, in which case we don't want to abort
+                         //--------------------------------------------------------------
+                         if( rc == EBADF && parentPID != getpid() ) return;
                          cerr <<"PollP: " <<XrdSysE2T(rc) <<" polling for events" <<endl;
                          abort();
                         }
