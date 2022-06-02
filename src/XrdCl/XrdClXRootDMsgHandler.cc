@@ -269,10 +269,20 @@ namespace XrdCl
                    "%s", pUrl.GetHostId().c_str(),
                    pRequest->GetDescription().c_str() );
 
+        uint16_t reqId = ntohs( req->header.requestid );
+        if( reqId == kXR_pgwrite )
+        {
+          //--------------------------------------------------------------------
+          // In case of pgwrite by definition this wont be a partial response
+          // so we can already remove the handler from the in-queue
+          //--------------------------------------------------------------------
+          return RemoveHandler;
+        }
+
         //----------------------------------------------------------------------
-        // first of all we need to read the body of the kXR_status response,
-        // we can handle the raw data (if any) only after we have the whole
-        // kXR_status body
+        // Otherwise (pgread), first of all we need to read the body of the
+        // kXR_status response, we can handle the raw data (if any) only after
+        // we have the whole kXR_status body
         //----------------------------------------------------------------------
         return None;
       }
@@ -291,7 +301,8 @@ namespace XrdCl
   //----------------------------------------------------------------------------
   uint16_t XRootDMsgHandler::InspectStatusRsp()
   {
-    if( !pResponse ) return 0;
+    if( !pResponse )
+      return 0;
 
     Log *log = DefaultEnv::GetLog();
     ServerResponse *rsp = (ServerResponse *)pResponse->GetBuffer();
@@ -337,8 +348,8 @@ namespace XrdCl
     //--------------------------------------------------------------------------
     // Common handling for partial results
     //--------------------------------------------------------------------------
-    ServerResponseStatus *rspst   = (ServerResponseStatus*)pResponse->GetBuffer();
-    if( rspst->bdy.resptype == XrdProto::kXR_PartialResult )
+    ServerResponseV2 *rspst   = (ServerResponseV2*)pResponse->GetBuffer();
+    if( rspst->status.bdy.resptype == XrdProto::kXR_PartialResult )
     {
       pPartialResps.push_back( std::move( pResponse ) );
     }
@@ -353,14 +364,14 @@ namespace XrdCl
       // The message contains only Status header and body but no raw data
       //----------------------------------------------------------------------
       pReadRawStarted = false;
-      pAsyncMsgSize   = rspst->bdy.dlen;
+      pAsyncMsgSize   = rspst->status.bdy.dlen;
       if( !pPageReader )
         pPageReader.reset( new AsyncPageReader( *pChunkList, pCrc32cDigests ) );
-      pPageReader->SetMsgDlen( rspst->bdy.dlen );
+      pPageReader->SetRsp( rspst );
 
       action |= Raw;
 
-      if( rspst->bdy.resptype == XrdProto::kXR_PartialResult )
+      if( rspst->status.bdy.resptype == XrdProto::kXR_PartialResult )
       {
         action |= NoProcess;
         pTimeoutFence.store( true, std::memory_order_relaxed );
@@ -373,7 +384,7 @@ namespace XrdCl
       // if data corruption has been detected on the server side we will
       // send some additional data pointing to the pages that need to be
       // retransmitted
-      if( size_t( sizeof( ServerResponseHeader ) + rspst->hdr.dlen + rspst->bdy.dlen ) >
+      if( size_t( sizeof( ServerResponseHeader ) + rspst->status.hdr.dlen + rspst->status.bdy.dlen ) >
         pResponse->GetCursor() )
         action |= More;
       // if we already have this data we need to unmarshal it
