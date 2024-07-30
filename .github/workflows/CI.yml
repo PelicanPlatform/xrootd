@@ -55,6 +55,7 @@ jobs:
           json-c-dev \
           krb5-dev \
           libxml2-dev \
+          libzip-dev \
           linux-headers \
           make \
           openssl \
