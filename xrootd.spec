@@ -802,6 +802,7 @@ fi
 %{_libdir}/libXrdMacaroons-5.so
 %{_libdir}/libXrdN2No2p-5.so
 %{_libdir}/libXrdOfsPrepGPI-5.so
+%{_libdir}/libXrdOssArc-5.so
 %{_libdir}/libXrdOssCsi-5.so
 %{_libdir}/libXrdOssSIgpfsT-5.so
 %{_libdir}/libXrdPfc-5.so
