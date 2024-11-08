@@ -25,7 +25,10 @@ else: Debug = True
 try:
    DIDclient = DIDClient()
 except Exception as e:
-   Emsg(8, "Error creating DID client: {}".format(e))
+   print('OssArc_BkupUtils:', "Error creating DID client: {}".format(e),
+         file=sys.stderr)
+   sys.exit(8)
+
 #******************************************************************************
 #*                                  E m s g                                   *
 #******************************************************************************
@@ -89,7 +92,7 @@ def Get_lfn2pfn(rse, scope, dsn, pfnPFX):
 def AddKey(key):
    metaclient = MetaClient()
 
-   # Get all current keys and check if this key is already in tghe set
+   # Get all current keys and check if this key is already in the set
    #
    try:
       allkeys = metaclient.list_keys()
