@@ -573,10 +573,6 @@ int XrdLinkXeq::RecvIOV(const struct iovec *iov, int iocnt)
 bool XrdLinkXeq::Register(const char *hName)
 {
 
-// First see if we can register this name with the address object
-//
-   if (!Addr.Register(hName)) return false;
-
 // Make appropriate changes here
 //
    if (HostName) free(HostName);

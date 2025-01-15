@@ -32,6 +32,7 @@
 
 #include <cstdlib>
 #include <cstring>
+#include <string>
 
 //------------------------------------------------------------------------------
 //! The XrdNetIF class handles host interfaces. It is used to obtain the
@@ -90,6 +91,18 @@ public:
        int  GetDest(char *dest, int dlen, ifType ifT=PublicV6, bool prefn=false);
 
 //------------------------------------------------------------------------------
+//! Get the public interface name with a port number.
+//!
+//! @param  dest  Pointer to the buffer where dest will be placed.
+//! @param  dlen  The length of the buffer.
+//!
+//! @return The length of the name whose pointer is placed in name.
+//!         A value of zero indicates that the buffer was too small.
+//------------------------------------------------------------------------------
+
+       int  GetPublicDest(char *dest, size_t dlen);
+
+//------------------------------------------------------------------------------
 //! Get the interface name without a port number.
 //!
 //! @param  name  Reference to where a pointer to the name will be placed
@@ -122,6 +135,39 @@ inline int  GetName(char *nbuff, int &nport, ifType ifT=PublicV6)
                     strcpy(nbuff, ifName[ifT]->iVal); nport = ifPort;
                     return ifName[ifT]->iLen;
                    }
+
+//------------------------------------------------------------------------------
+//! Get the interface public hostname, not relying on reverse DNS of the IP
+//! addresses.
+//!
+//! @param  nbuff Reference to buffer where the name will be placed. It must
+//!               be at least 256 bytes in length.
+//! @param  nport Place where the port number will be placed.
+//!
+//! @return The length of the name copied into the buffer.
+//!         A value of zero indicates that no such interface exists.
+//------------------------------------------------------------------------------
+int GetPublicName(char *nbuff, int &nport)
+{
+    strcpy(nbuff, m_PublicName.c_str());
+    nport = ifPort;
+    return m_PublicName.size();
+}
+
+//------------------------------------------------------------------------------
+//! Sets the 'public name' to use associated with this interface.
+//!
+//! @param  name New public name to utilize.
+//!
+//! @return True if the name is a valid hostname; false otherwise.
+//------------------------------------------------------------------------------
+bool SetPublicName(const std::string &name)
+{
+    // TODO: Actually validate this is an acceptable DNS name.
+    if (name.size() > 255) return false;
+    m_PublicName = name;
+    return true;
+}
 
 //------------------------------------------------------------------------------
 //! Obtain an easily digestable list of IP routable interfaces to this machine.
@@ -432,6 +478,9 @@ int            ifPort;
 short          ifRoute;
 char           ifMask;
 char           ifAvail;
+
+// The public hostname of the interface.
+std::string    m_PublicName;
 
 static
 XrdSysError   *eDest;
