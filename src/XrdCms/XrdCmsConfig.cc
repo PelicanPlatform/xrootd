@@ -415,6 +415,11 @@ int XrdCmsConfig::Configure2()
 //
    envData += "myHN=";
    envData += myName;
+   const char *override_hn = getenv("OVERRIDEXRDHOST");
+   if (override_hn)
+      {envData += "&ovHN=";
+       envData += override_hn;
+      }
 
 // Print herald
 //

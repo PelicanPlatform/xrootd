@@ -166,6 +166,8 @@ void XrdCmsNode::setName(XrdLink *lnkp, const char *theIF, int port)
    netIF.SetIF(&netID, theIF, port);
    hasNet = netIF.Mask();
 
+   netIF.SetPublicName(hname);
+
 // Construct our identification
 //
    myName = strdup(hname);
