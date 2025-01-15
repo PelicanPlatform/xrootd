@@ -564,30 +564,6 @@ int XrdCmsProtocol::Stats(char *buff, int blen, int do_sync)
 /******************************************************************************/
 /*                                 A d m i t                                  */
 /******************************************************************************/
-
-namespace
-{
-char *getAltName(char *sid, char *buff, int blen)
-{
-   char *atsign, *spacec, *retval = 0;
-   int  n;
-   if (sid)
-   if ((atsign = index(sid, '@')))
-      {atsign++;
-       if ((spacec = index(atsign, ' ')))
-          {*spacec = 0;
-           n = strlen(atsign);
-           if (n > 3 && n < blen)
-              {strcpy(buff, atsign);
-               retval = buff;
-              }
-           *spacec = ' ';
-          }
-      }
-   return retval;
-}
-}
-
 XrdCmsRouting *XrdCmsProtocol::Admit()
 {
    EPNAME("Admit");
@@ -623,37 +599,18 @@ XrdCmsRouting *XrdCmsProtocol::Admit()
 // Construct environment for incoming node
 //
    XrdOucEnv cgiEnv((const char *)Data.envCGI);
-
-// We have this problem hat many times the IPv6 address is missing the ptr
-// record in DNS. If this node is IPv6 unregistered and the incoming node
-// supplied it's host name then we can attempt to register it locally.
-//
-   if (!(Link->AddrInfo()->isRegistered())
-   &&    Link->AddrInfo()->isIPType(XrdNetAddrInfo::IPv6))
-      {const char *altName = cgiEnv.Get("myHN");
-       const char *altType = "stated mapping";
-       char hBF[256], *oldName = strdup(Link->Host());
-       if (!altName) {altName = getAltName((char *)Data.SID, hBF, sizeof(hBF));
-                      altType = "inferred mapping";
-                     }
-       Say.Emsg("Protocol", "DNS lookup for", oldName, "failed; "
-                            "IPv6 ptr record missing!");
-       if (!altName)
-          {Say.Emsg("Protocol", oldName, "did not supply a fallback "
-                                         "mapping; using IPv6 address.");
-          } else {
-           char buff[512];
-           snprintf(buff, sizeof(buff), "%s -> %s", oldName, altName);
-           Say.Emsg("Protocol", "Attempting to use", altType, buff);
-           if (!(Link->Register(altName)))
-              {Say.Emsg("Protocol", buff, altType,"failed; address mismatch.");
-              } else {
-               Say.Emsg("Protocol", oldName,
-                        "is now locally registered as", altName);
-              }
-          }
-       free(oldName);
-      }
+   const char *altName = cgiEnv.Get("ovHN");
+   if (altName) {
+     std::string oldName(Link->Host());
+     char buff[512];
+     snprintf(buff, sizeof(buff), "%s -> %s", oldName.c_str(), altName);
+     Say.Emsg("Protocol", "Attempting to use stated mapping", buff);
+     if (!(Link->Register(altName))) {
+       Say.Emsg("Protocol", buff, "stated mapping failed; address mismatch.");
+     } else {
+       Say.Emsg("Protocol", oldName.c_str(), "is now locally registered as", altName);
+     }
+   }
 
 // Handle Redirectors here (minimal stuff to do)
 //
