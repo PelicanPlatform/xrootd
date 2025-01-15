@@ -1151,8 +1151,9 @@ int Cache::Stat(const char *curl, struct stat &sbuff)
    }
    sbuff.st_size = file_size;
    bool is_cached = DecideIfConsideredCached(file_size, sbuff.st_blocks * 512ll);
-   if ( ! is_cached)
-      sbuff.st_atime = 0;
+   if ( ! is_cached) {
+      sbuff.st_ctime = sbuff.st_mtime = sbuff.st_atime = 0;
+   }
 
    TRACE(Debug, tpfx << "from disk " << curl << " -> " << res);
 
