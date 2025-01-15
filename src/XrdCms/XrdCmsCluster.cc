@@ -557,8 +557,7 @@ XrdCmsSelected *XrdCmsCluster::List(SMask_t mask, CmsLSOpts opts, bool &oksel)
                      }
                }
             sip = new XrdCmsSelected(sipp);
-                 if (retDest) destLen = nP->netIF.GetDest(sip->Ident, iSize,
-                                                          ifGet, retName);
+                 if (retDest) destLen = nP->netIF.GetPublicDest(sip->Ident, iSize);
             else if (nP->myNlen >= XrdCmsSelected::IdentSize) destLen = 0;
             else {strcpy(sip->Ident, nP->myName); destLen = nP->myNlen;}
             if (!destLen) {delete sip; continue;}
@@ -1121,7 +1120,7 @@ int XrdCmsCluster::Select(SMask_t pmask, int &port, char *hbuff, int &hlen,
                              : Config.sched_LoadR == 0 ? SelbyLoad(pmask,selR)
                                                        : SelbyLoadR(pmask, selR));
 
-       if (nP) hlen = nP->netIF.GetName(hbuff, port, nType) + 1;
+       if (nP) hlen = nP->netIF.GetPublicName(hbuff, port) + 1;
           else hlen = 0;
        STMutex.UnLock();
        return hlen != 1;
@@ -1152,7 +1151,7 @@ int XrdCmsCluster::Select(SMask_t pmask, int &port, char *hbuff, int &hlen,
 // At this point either we have a node or we do not
 //
    if (nP)
-      {hlen = nP->netIF.GetName(hbuff, port, nType) + 1;
+      {hlen = nP->netIF.GetPublicName(hbuff, port) + 1;
        nP->RefR++;
        STMutex.UnLock();
        return hlen != 1;
@@ -1633,7 +1632,7 @@ int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t amask)
 //
    if (nP)
       {nP->g2nLock(STMutex);
-       Sel.Resp.DLen = nP->netIF.GetName(Sel.Resp.Data, Sel.Resp.Port, nType);
+       Sel.Resp.DLen = nP->netIF.GetPublicName(Sel.Resp.Data, Sel.Resp.Port);
        if (!Sel.Resp.DLen) {nP->UnLock(); return Unreachable(Sel, false);}
        Sel.Resp.DLen++; Sel.smask = nP->NodeMask;
 
@@ -1690,7 +1689,7 @@ int XrdCmsCluster::SelNode(XrdCmsSelect &Sel, SMask_t pmask, SMask_t amask)
        if ((mask = (pmask | amask) & peerHost)) nP = SelbyCost(mask, selR);
        if (nP)
           {nP->g2nLock(STMutex);
-           Sel.Resp.DLen = nP->netIF.GetName(Sel.Resp.Data,Sel.Resp.Port,nType);
+           Sel.Resp.DLen = nP->netIF.GetPublicName(Sel.Resp.Data,Sel.Resp.Port);
            if (!Sel.Resp.DLen) {nP->UnLock(); return Unreachable(Sel, false);}
            Sel.Resp.DLen++; Sel.smask = nP->NodeMask;
            if (Sel.iovN && Sel.iovP) nP->Send(Sel.iovP, Sel.iovN);
