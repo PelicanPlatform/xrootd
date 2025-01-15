@@ -148,4 +148,27 @@ function test_http() {
   receivedDigest=$(grep -i "Digest" "$outputFilePath")
   assert_eq "$expectedDigest" "$receivedDigest" "HEAD request test failed (digest not supported)"
 	wait
+
+  ## OPTIONS has appropriate static headers
+  curl -s -X OPTIONS -v --raw "${HOST}/$alphabetFilePath" 2>&1 | tr -d '\r' > "$outputFilePath"
+  cat "$outputFilePath"
+  expectedHeader='< Access-Control-Allow-Origin: *'
+  receivedHeader=$(grep -i 'Access-Control-Allow-Origin:' "$outputFilePath")
+  assert_eq "$expectedHeader" "$receivedHeader" "OPTIONS is missing statically-defined Access-Control-Allow-Origin"
+  expectedHeader='< Test: 1'
+  receivedHeader=$(grep -i 'Test:' "$outputFilePath")
+  assert_eq "$expectedHeader" "$receivedHeader" "OPTIONS is missing statically-defined Test header"
+
+  ## GET has appropriate static headers
+  curl -s -v --raw "${HOST}/$alphabetFilePath" 2>&1 | tr -d '\r' > "$outputFilePath"
+  cat "$outputFilePath"
+  expectedHeader='< Foo: Bar'
+  receivedHeader=$(grep -i 'Foo: Bar' "$outputFilePath")
+  assert_eq "$expectedHeader" "$receivedHeader" "GET is missing statically-defined 'Foo: Bar' header"
+  expectedHeader='< Foo: Baz'
+  receivedHeader=$(grep -i 'Foo: Baz' "$outputFilePath")
+  assert_eq "$expectedHeader" "$receivedHeader" "GET is missing statically-defined 'Foo: Baz' header"
+  expectedHeader='< Test: 1'
+  receivedHeader=$(grep -i 'Test:' "$outputFilePath")
+  assert_eq "$expectedHeader" "$receivedHeader" "GET is missing statically-defined Test header"
 }
