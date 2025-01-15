@@ -403,7 +403,23 @@ int XrdNetIF::GetDest(char *dest, int dlen, ifType ifT, bool prefn)
    strcpy(dest +ifP->iLen, portSfx.val);
    return n;
 }
-  
+
+
+/******************************************************************************/
+/*                               G e t P u b l i c D e s t                    */
+/******************************************************************************/
+
+int XrdNetIF::GetPublicDest(char *dest, size_t dlen)
+{
+    auto n = m_PublicName.size() + portSfx.len;
+    if (m_PublicName.empty() || n >= dlen) return 0;
+
+    strcpy(dest, m_PublicName.c_str());
+    strcpy(dest + m_PublicName.size(), portSfx.val);
+
+    return n;
+}
+
 /******************************************************************************/
 /*                                 G e t I F                                  */
 /******************************************************************************/
