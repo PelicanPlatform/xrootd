@@ -323,7 +323,7 @@ int XrdCmsClientMan::Hookup()
    EPNAME("Hookup");
    CmsLoginData Data;
    XrdLink *lp;
-   char buff[256], hnBuff[264];
+   char buff[256], hnBuff[264*2+1];
    kXR_char *envData = 0;
    int rc, oldWait, tries = 12, opts = 0;
 
@@ -336,7 +336,12 @@ int XrdCmsClientMan::Hookup()
 // Report our hostname (there are better ways of doing this)
 //
    const char *hn = getenv("XRDHOST");
-   if (hn)
+   const char *override_hn = getenv("OVERRIDEXRDHOST");
+   if (hn && override_hn)
+      {snprintf(hnBuff, sizeof(hnBuff), "myHN=%s&ovHN=%s", hn, override_hn);
+       envData = (kXR_char *)hnBuff;
+      }
+   else if (hn)
       {snprintf(hnBuff, sizeof(hnBuff), "myHN=%s", hn);
        envData = (kXR_char *)hnBuff;
       }
