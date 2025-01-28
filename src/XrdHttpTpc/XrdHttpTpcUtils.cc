@@ -43,6 +43,9 @@ std::string XrdHttpTpcUtils::prepareOpenURL(PrepareOpenURLParams & params) {
           params.reqHeaders["Authorization"] = token.substr(6);
           has_authz_header = true;
         }
+      } else if (!strncmp(token.c_str(), "access_token=", 13) && !has_authz_header) {
+        params.reqHeaders["Authorization"] = token.substr(13);
+        has_authz_header = true;
       } else {
         opaque << "&" << token;
       }
