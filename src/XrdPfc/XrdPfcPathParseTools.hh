@@ -95,7 +95,7 @@ struct PathTokenizer : private SplitParser
          if (t == 0) break;
          m_dirs.emplace_back(t);
       }
-      if (parse_as_lfn && *get_reminder() == 0 && ! m_dirs.empty())
+      if (parse_as_lfn && (get_reminder() == 0 || *get_reminder() == 0) && ! m_dirs.empty())
       {
          m_reminder = m_dirs.back();
          m_dirs.pop_back();
