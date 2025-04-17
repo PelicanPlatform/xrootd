@@ -38,7 +38,8 @@ add_library(
   XrdPfc/XrdPfcIO.cc            XrdPfc/XrdPfcIO.hh
   XrdPfc/XrdPfcIOFile.cc        XrdPfc/XrdPfcIOFile.hh
   XrdPfc/XrdPfcIOFileBlock.cc   XrdPfc/XrdPfcIOFileBlock.hh
-  XrdPfc/XrdPfcDecision.hh)
+  XrdPfc/XrdPfcDecision.hh
+  XrdPfc/XrdPfcTrace.hh)
 
 target_link_libraries(
   ${LIB_XRD_FILECACHE}
@@ -115,6 +116,17 @@ install(
     ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcFile.hh
     ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcTypes.hh
     ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcInfo.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcDecision.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcDirState.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcDirStateSnapshot.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcFPurgeState.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcFSctl.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcFsTraversal.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcIOFileBlock.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcIO.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcPrint.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcResourceMonitor.hh
+    ${CMAKE_CURRENT_SOURCE_DIR}/XrdPfc/XrdPfcTrace.hh
   DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/xrootd/XrdPfc
 )
 
