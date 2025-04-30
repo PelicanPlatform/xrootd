@@ -121,7 +121,9 @@ add_library(
   ${LIB_XRD_THROTTLE}
   MODULE
   XrdOfs/XrdOfsFS.cc
+  XrdThrottle/XrdOssThrottleFile.cc
   XrdThrottle/XrdThrottle.hh           XrdThrottle/XrdThrottleTrace.hh
+  XrdThrottle/XrdThrottleConfig.cc     XrdThrottle/XrdThrottleConfig.hh
   XrdThrottle/XrdThrottleFileSystem.cc
   XrdThrottle/XrdThrottleFileSystemConfig.cc
   XrdThrottle/XrdThrottleFile.cc
