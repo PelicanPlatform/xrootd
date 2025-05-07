@@ -2486,6 +2486,7 @@ int XrdHttpReq::PostProcessHTTPReq(bool final_) {
                 stringresp += "<lp1:resourcetype><D:collection/></lp1:resourcetype>\n";
                 stringresp += "<lp1:iscollection>1</lp1:iscollection>\n";
               } else {
+                stringresp += "<lp1:resourcetype/>\n";
                 stringresp += "<lp1:iscollection>0</lp1:iscollection>\n";
               }
 
@@ -2602,6 +2603,7 @@ int XrdHttpReq::PostProcessHTTPReq(bool final_) {
                   stringresp += "<lp1:resourcetype><D:collection/></lp1:resourcetype>\n";
                   stringresp += "<lp1:iscollection>1</lp1:iscollection>\n";
                 } else {
+                  stringresp += "<lp1:resourcetype/>\n";
                   stringresp += "<lp1:iscollection>0</lp1:iscollection>\n";
                 }
 
