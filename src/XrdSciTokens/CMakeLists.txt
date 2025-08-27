@@ -53,6 +53,7 @@ add_library(${XrdAccSciTokens} MODULE
 target_link_libraries(${XrdAccSciTokens}
   PRIVATE
     XrdSciTokensObj
+    ${SCITOKENS_CPP_LIBRARIES}
 )
 
 install(
