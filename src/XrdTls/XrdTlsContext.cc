@@ -17,10 +17,13 @@
 //------------------------------------------------------------------------------
 
 #include <cstdio>
+#include <cstdlib>
+#include <mutex>
 #include <openssl/bio.h>
 #include <openssl/crypto.h>
 #include <openssl/engine.h>
 #include <openssl/err.h>
+#include <openssl/conf.h>
 #include <openssl/ssl.h>
 #include <openssl/opensslv.h>
 #include <sys/stat.h>
@@ -47,6 +50,32 @@ namespace XrdTlsGlobal
 {
 extern XrdSysTrace SysTrace;
 };
+
+namespace
+{
+#ifndef OPENSSL_NO_CONF
+bool EnsureOpenSSLConfigLoaded()
+{
+    static std::once_flag configFlag;
+    static bool loadOK = true;
+
+    std::call_once(configFlag, []() {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+        if (!OPENSSL_init_ssl(OPENSSL_INIT_LOAD_CONFIG, nullptr))
+            loadOK = false;
+#else
+        OPENSSL_config(nullptr);
+#endif
+    });
+    return loadOK;
+}
+#else
+bool EnsureOpenSSLConfigLoaded()
+{
+    return false;
+}
+#endif
+}
   
 /******************************************************************************/
 /*                      X r d T l s C o n t e x t I m p l                     */
@@ -765,9 +794,18 @@ XrdTlsContext::XrdTlsContext(const char *cert,  const char *key,
 // Load the private key
 //
    if (key[0] == 'p') {
+      if (!EnsureOpenSSLConfigLoaded())
+         FATAL_SSL("Unable to load OpenSSL configuration; cannot initialize pkcs11 engine.");
 
       ENGINE *e = ENGINE_by_id("pkcs11");
       if (e) {
+         const char* modulePath = getenv("PKCS11_MODULE_PATH");
+         if (modulePath && modulePath[0]) {
+            if (!ENGINE_ctrl_cmd_string(e, "MODULE_PATH", modulePath, 0)) {
+               ENGINE_free(e);
+               FATAL_SSL("Unable to configure pkcs11 engine MODULE_PATH");
+            }
+         }
          if(!ENGINE_init(e)) {
             ENGINE_free(e);
             FATAL_SSL("Unable to initialize pkcs11 engine");
