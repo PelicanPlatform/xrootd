@@ -24,11 +24,20 @@
 #include <openssl/opensslconf.h>
 #include <openssl/opensslv.h>
 
-// ENGINE API availability check:
-// - OPENSSL_NO_ENGINE: OpenSSL compiled with no-engine (engine.h may not exist)
-// - OPENSSL_NO_DEPRECATED_3_0: OpenSSL 3.0+ compiled with no-deprecated (ENGINE is deprecated)
-// - OPENSSL_NO_DEPRECATED: All deprecated APIs disabled
-#if !defined(OPENSSL_NO_ENGINE) && !defined(OPENSSL_NO_DEPRECATED_3_0) && !defined(OPENSSL_NO_DEPRECATED)
+// PKCS#11 support strategy:
+// - OpenSSL 3.x+ (EL9+, AlmaLinux 10): Prefer OSSL_STORE API with pkcs11-provider (modern)
+//   Falls back to ENGINE if pkcs11-provider is not installed but engine_pkcs11 is
+// - OpenSSL 1.1.x (EL8): Use ENGINE API with libp11/engine_pkcs11 (legacy compatibility)
+
+// OpenSSL 3.0+ Provider/OSSL_STORE support (preferred for modern systems)
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  #define XRDTLS_HAVE_OSSL_STORE 1
+  #include <openssl/store.h>
+#endif
+
+// ENGINE API support:
+// - OpenSSL 1.1.x: Primary method for PKCS#11
+#if !defined(OPENSSL_NO_ENGINE)
   #define XRDTLS_HAVE_ENGINE 1
   #include <openssl/engine.h>
 #endif
@@ -806,10 +815,42 @@ XrdTlsContext::XrdTlsContext(const char *cert,  const char *key,
 // Load the private key
 //
    if (key[0] == 'p') {
-#ifdef XRDTLS_HAVE_ENGINE
       if (!EnsureOpenSSLConfigLoaded())
-         FATAL_SSL("Unable to load OpenSSL configuration; cannot initialize pkcs11 engine.");
+         FATAL_SSL("Unable to load OpenSSL configuration; cannot initialize pkcs11.");
 
+#ifdef XRDTLS_HAVE_OSSL_STORE
+      // OpenSSL 3.x+: Use OSSL_STORE API with pkcs11-provider (modern, preferred)
+      // Requires pkcs11-provider to be installed: https://github.com/latchset/pkcs11-provider
+      OSSL_STORE_CTX *store_ctx = OSSL_STORE_open(key, nullptr, nullptr, nullptr, nullptr);
+      if (!store_ctx)
+         FATAL_SSL("Failed to open PKCS11 URI. Ensure pkcs11-provider is installed and configured.");
+
+      EVP_PKEY *priv_key = nullptr;
+      while (!OSSL_STORE_eof(store_ctx)) {
+         OSSL_STORE_INFO *info = OSSL_STORE_load(store_ctx);
+         if (info) {
+            int type = OSSL_STORE_INFO_get_type(info);
+            if (type == OSSL_STORE_INFO_PKEY) {
+               priv_key = OSSL_STORE_INFO_get1_PKEY(info);
+               OSSL_STORE_INFO_free(info);
+               break;
+            }
+            OSSL_STORE_INFO_free(info);
+         }
+      }
+      OSSL_STORE_close(store_ctx);
+
+      if (!priv_key)
+         FATAL_SSL("Failed to load private key from PKCS11 URI. Check pkcs11-provider configuration.");
+
+      if (SSL_CTX_use_PrivateKey(pImpl->ctx, priv_key) != 1) {
+         EVP_PKEY_free(priv_key);
+         FATAL_SSL("Failed to have SSL context use private key");
+      }
+      EVP_PKEY_free(priv_key);
+
+#elif defined(XRDTLS_HAVE_ENGINE)
+      // OpenSSL 1.1.x (EL8): Use ENGINE API with libp11/engine_pkcs11
       ENGINE *e = ENGINE_by_id("pkcs11");
       if (e) {
          const char* modulePath = getenv("PKCS11_MODULE_PATH");
@@ -835,7 +876,7 @@ XrdTlsContext::XrdTlsContext(const char *cert,  const char *key,
          FATAL_SSL("Failed to have SSL context use private key");
       EVP_PKEY_free(priv_key);
 #else
-      FATAL_SSL("PKCS11 support not available; OpenSSL built without ENGINE API support.");
+      FATAL_SSL("PKCS11 support not available.");
 #endif
 
    } else if (SSL_CTX_use_PrivateKey_file(pImpl->ctx, key, SSL_FILETYPE_PEM) != 1 )
