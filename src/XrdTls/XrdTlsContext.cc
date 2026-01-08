@@ -557,8 +557,8 @@ bool VerPaths(const char *cert, const char *pkey,
        return false;
       }
 
-// If a private key is present than make sure it's a file and only the
-// owner has access to it.
+// If a private key is provided as a filesystem path, verify it's a file and only the
+// owner has access to it. If it's a PKCS#11 URI, it will be validated later.
 //
    if (pkey && pkey[0] == '/' && (emsg = XrdOucUtils::ValPath(pkey, pkey_mode, false)))
       {eMsg  = "Unable to use key file ";
