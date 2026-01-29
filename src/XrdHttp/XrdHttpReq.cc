@@ -2311,8 +2311,7 @@ int XrdHttpReq::PostProcessHTTPReq(bool final_) {
 
         if (ntohs(xrdreq.header.requestid) == kXR_close) {
           if (xrdresp == kXR_ok) {
-            // The correct response code is 201 (Created) but Pelican clients before 7.12.2 do not treat 201 as success, only 200.
-            prot->SendSimpleResp(200, NULL, NULL, (char *) ":-)", 0, keepalive);
+            prot->SendSimpleResp(201, NULL, NULL, (char *)":-)", 0, keepalive);
             return keepalive ? 1 : -1;
           } else {
             prot->SendSimpleResp(httpStatusCode, NULL, NULL, httpErrorBody.c_str(), httpErrorBody.length(), keepalive);
