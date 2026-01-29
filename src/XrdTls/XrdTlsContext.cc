@@ -17,11 +17,37 @@
 //------------------------------------------------------------------------------
 
 #include <cstdio>
+#include <cstdlib>
+#include <mutex>
+
+// Include OpenSSL config headers first to get feature detection macros
+#include <openssl/opensslconf.h>
+#include <openssl/opensslv.h>
+
+// PKCS#11 support strategy:
+// - OpenSSL 3.x+ (EL9+, AlmaLinux 10): Prefer OSSL_STORE API with pkcs11-provider (modern)
+//   Falls back to ENGINE if pkcs11-provider is not installed but engine_pkcs11 is
+// - OpenSSL 1.1.x (EL8): Use ENGINE API with libp11/engine_pkcs11 (legacy compatibility)
+
+// OpenSSL 3.0+ Provider/OSSL_STORE support (preferred for modern systems)
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+  #define XRDTLS_HAVE_OSSL_STORE 1
+  #include <openssl/store.h>
+  #include <openssl/provider.h>
+#endif
+
+// ENGINE API support:
+// - OpenSSL 1.1.x: Primary method for PKCS#11
+#if !defined(OPENSSL_NO_ENGINE)
+  #define XRDTLS_HAVE_ENGINE 1
+  #include <openssl/engine.h>
+#endif
+
 #include <openssl/bio.h>
 #include <openssl/crypto.h>
 #include <openssl/err.h>
+#include <openssl/conf.h>
 #include <openssl/ssl.h>
-#include <openssl/opensslv.h>
 #include <sys/stat.h>
 
 #include "XrdOuc/XrdOucUtils.hh"
@@ -46,6 +72,79 @@ namespace XrdTlsGlobal
 {
 extern XrdSysTrace SysTrace;
 };
+
+namespace
+{
+#ifndef OPENSSL_NO_CONF
+bool EnsureOpenSSLConfigLoaded()
+{
+    static std::once_flag configFlag;
+    static bool loadOK = true;
+
+    std::call_once(configFlag, []() {
+#if OPENSSL_VERSION_NUMBER >= 0x10100000L
+        if (!OPENSSL_init_ssl(OPENSSL_INIT_LOAD_CONFIG, nullptr))
+            loadOK = false;
+#else
+        OPENSSL_config(nullptr);
+#endif
+    });
+    return loadOK;
+}
+#else
+bool EnsureOpenSSLConfigLoaded()
+{
+    return false;
+}
+#endif
+
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+// Initialize an isolated OSSL_LIB_CTX for PKCS11 operations
+// This prevents PKCS11 from affecting other parts of the process (e.g., SciTokens library)
+bool InitIsolatedPKCS11Context(OSSL_LIB_CTX **libCtx, OSSL_PROVIDER **pkcs11Prov, OSSL_PROVIDER **defaultProv)
+{
+    // Create an isolated library context
+    *libCtx = OSSL_LIB_CTX_new();
+    if (!*libCtx) {
+        return false;
+    }
+
+    // Load the OpenSSL configuration into the isolated context
+    // This allows the pkcs11-provider to be properly configured with module paths, etc.
+    const char *opensslConf = getenv("OPENSSL_CONF");
+    if (opensslConf && opensslConf[0]) {
+        // Load the config file into the isolated context
+        if (!OSSL_LIB_CTX_load_config(*libCtx, opensslConf)) {
+            // Config loading failed, cleanup and return error
+            OSSL_LIB_CTX_free(*libCtx);
+            *libCtx = nullptr;
+            return false;
+        }
+    } else {
+        // No OPENSSL_CONF set, try loading providers manually
+        // Load the default provider in the isolated context (needed for basic crypto)
+        *defaultProv = OSSL_PROVIDER_load(*libCtx, "default");
+        if (!*defaultProv) {
+            OSSL_LIB_CTX_free(*libCtx);
+            *libCtx = nullptr;
+            return false;
+        }
+
+        // Load the pkcs11 provider in the isolated context
+        *pkcs11Prov = OSSL_PROVIDER_load(*libCtx, "pkcs11");
+        if (!*pkcs11Prov) {
+            OSSL_PROVIDER_unload(*defaultProv);
+            OSSL_LIB_CTX_free(*libCtx);
+            *libCtx = nullptr;
+            *defaultProv = nullptr;
+            return false;
+        }
+    }
+
+    return true;
+}
+#endif
+}
   
 /******************************************************************************/
 /*                      X r d T l s C o n t e x t I m p l                     */
@@ -56,10 +155,18 @@ struct XrdTlsContextImpl
     XrdTlsContextImpl(XrdTlsContext *p)
                      : ctx(0), ctxnew(0), owner(p), flsCVar(0),
                        flushT(0),
-                       crlRunning(false), flsRunning(false) {}
+                       crlRunning(false), flsRunning(false)
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+                       , pkcs11LibCtx(0), pkcs11Provider(0)
+#endif
+                       {}
    ~XrdTlsContextImpl() {if (ctx)     SSL_CTX_free(ctx);
                          if (ctxnew)  delete ctxnew;
                          if (flsCVar) delete flsCVar;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+                         if (pkcs11Provider) OSSL_PROVIDER_unload(pkcs11Provider);
+                         if (pkcs11LibCtx)   OSSL_LIB_CTX_free(pkcs11LibCtx);
+#endif
                         }
 
     SSL_CTX                      *ctx;
@@ -74,6 +181,10 @@ struct XrdTlsContextImpl
     time_t                        lastCertModTime = 0;
     int                           sessionCacheOpts = -1;
     std::string                   sessionCacheId;
+#if OPENSSL_VERSION_NUMBER >= 0x30000000L
+    OSSL_LIB_CTX                 *pkcs11LibCtx;      // Isolated context for PKCS11
+    OSSL_PROVIDER                *pkcs11Provider;    // PKCS11 provider handle
+#endif
 };
   
 /******************************************************************************/
@@ -467,10 +578,10 @@ bool VerPaths(const char *cert, const char *pkey,
        return false;
       }
 
-// If a private key is present than make sure it's a file and only the
-// owner has access to it.
+// If a private key is provided as a filesystem path, verify it's a file and only the
+// owner has access to it. If it's a PKCS#11 URI, it will be validated later.
 //
-   if (pkey && (emsg = XrdOucUtils::ValPath(pkey, pkey_mode, false)))
+   if (pkey && pkey[0] == '/' && (emsg = XrdOucUtils::ValPath(pkey, pkey_mode, false)))
       {eMsg  = "Unable to use key file ";
        eMsg += pkey; eMsg += "; "; eMsg += emsg;
        return false;
@@ -750,7 +861,87 @@ XrdTlsContext::XrdTlsContext(const char *cert,  const char *key,
 
 // Load the private key
 //
-   if (SSL_CTX_use_PrivateKey_file(pImpl->ctx, key, SSL_FILETYPE_PEM) != 1 )
+   if (key[0] == 'p') {
+      if (!EnsureOpenSSLConfigLoaded())
+         FATAL_SSL("Unable to load OpenSSL configuration; cannot initialize pkcs11.");
+
+#ifdef XRDTLS_HAVE_OSSL_STORE
+      // OpenSSL 3.x+: Use OSSL_STORE API with pkcs11-provider in an ISOLATED context
+      // This prevents PKCS11 from affecting other TLS operations (e.g., SciTokens library)
+      
+      OSSL_PROVIDER *defaultProv = nullptr;
+      
+      // Initialize isolated PKCS11 context
+      // This loads the OPENSSL_CONF into an isolated context so PKCS11 doesn't affect
+      // other libraries in the process (like SciTokens)
+      if (!InitIsolatedPKCS11Context(&pImpl->pkcs11LibCtx, &pImpl->pkcs11Provider, &defaultProv)) {
+         FATAL_SSL("Failed to initialize isolated PKCS11 context. Check OPENSSL_CONF and pkcs11-provider installation.");
+      }
+
+      // Open PKCS11 URI using the isolated context
+      OSSL_STORE_CTX *store_ctx = OSSL_STORE_open_ex(key, pImpl->pkcs11LibCtx, nullptr, 
+                                                       nullptr, nullptr, nullptr, nullptr, nullptr);
+      if (!store_ctx) {
+         if (defaultProv) OSSL_PROVIDER_unload(defaultProv);
+         FATAL_SSL("Failed to open PKCS11 URI in isolated context.");
+      }
+
+      EVP_PKEY *priv_key = nullptr;
+      while (!OSSL_STORE_eof(store_ctx)) {
+         OSSL_STORE_INFO *info = OSSL_STORE_load(store_ctx);
+         if (info) {
+            int type = OSSL_STORE_INFO_get_type(info);
+            if (type == OSSL_STORE_INFO_PKEY) {
+               priv_key = OSSL_STORE_INFO_get1_PKEY(info);
+               OSSL_STORE_INFO_free(info);
+               break;
+            }
+            OSSL_STORE_INFO_free(info);
+         }
+      }
+      OSSL_STORE_close(store_ctx);
+      if (defaultProv) OSSL_PROVIDER_unload(defaultProv);
+
+      if (!priv_key)
+         FATAL_SSL("Failed to load private key from PKCS11 URI in isolated context.");
+
+      if (SSL_CTX_use_PrivateKey(pImpl->ctx, priv_key) != 1) {
+         EVP_PKEY_free(priv_key);
+         FATAL_SSL("Failed to have SSL context use private key");
+      }
+      EVP_PKEY_free(priv_key);
+
+#elif defined(XRDTLS_HAVE_ENGINE)
+      // OpenSSL 1.1.x (EL8): Use ENGINE API with libp11/engine_pkcs11
+      ENGINE *e = ENGINE_by_id("pkcs11");
+      if (e) {
+         const char* modulePath = getenv("PKCS11_MODULE_PATH");
+         if (modulePath && modulePath[0]) {
+            if (!ENGINE_ctrl_cmd_string(e, "MODULE_PATH", modulePath, 0)) {
+               ENGINE_free(e);
+               FATAL_SSL("Unable to configure pkcs11 engine MODULE_PATH");
+            }
+         }
+         if(!ENGINE_init(e)) {
+            ENGINE_free(e);
+            FATAL_SSL("Unable to initialize pkcs11 engine");
+         }
+      } else {
+         FATAL_SSL("Unable to create pkcs11 engine");
+      }
+      auto priv_key = ENGINE_load_private_key(e, key, nullptr, nullptr);
+
+      if (!priv_key) {
+         FATAL_SSL("Failed to load private key through engine");
+      }
+      if (SSL_CTX_use_PrivateKey(pImpl->ctx, priv_key) != 1)
+         FATAL_SSL("Failed to have SSL context use private key");
+      EVP_PKEY_free(priv_key);
+#else
+      FATAL_SSL("PKCS11 support not available.");
+#endif
+
+   } else if (SSL_CTX_use_PrivateKey_file(pImpl->ctx, key, SSL_FILETYPE_PEM) != 1 )
       FATAL_SSL("Unable to create TLS context; invalid private key.");
 
 // Make sure the key and certificate file match.
