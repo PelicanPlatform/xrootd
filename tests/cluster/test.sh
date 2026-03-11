@@ -193,7 +193,7 @@ done
 # Renaming operation on meta manager fail with 501
 # Not sure why this is the expected behaviour
 # https://github.com/xrootd/xrootd/blob/8ac19b1d2b74521acff9ed0200052a2e373092cc/src/XrdHttp/XrdHttpReq.cc#L1746-L1752
-
+# This is a dummy branch to test the GitHub Actions CI/CD pipeline
 declare -A srcs=(
     [metaman]=501
     [man1]=201
