@@ -748,7 +748,11 @@ void ResourceMonitor::perform_purge_check(bool purge_cold_files, int tl)
    //     deletion -- eg, by comparing stat time of cinfo + doing the is-active / is-purge-protected.
 
    const DirState &root_ds = *m_fs_state.get_root();
-   const int n_calc_dirs  = 1 + root_ds.m_here_usage.m_NDirectories + root_ds.m_recursive_subdir_usage.m_NDirectories;
+   // Guard against a negative directory count (accounting drift, see
+   // xrootd/xrootd#2808): reserve() with a negative int converted to size_t
+   // throws std::length_error and aborts the daemon. reserve() is only a
+   // capacity hint; fill_pshot_vec_children() walks the actual tree.
+   const int n_calc_dirs  = std::max(1, 1 + root_ds.m_here_usage.m_NDirectories + root_ds.m_recursive_subdir_usage.m_NDirectories);
 #ifdef RM_DEBUG
    const int n_pshot_dirs = root_ds.count_dirs_to_level(9999);
    dprintf("purge dir count recursive=%d vs from_usage=%d\n", n_pshot_dirs, n_calc_dirs);
