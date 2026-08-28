@@ -41,11 +41,14 @@ public:
 
 XrdSysCondVar  *KillcvP;      // Protected by opMutex!
 XrdSysSemaphore IOSemaphore;  // Serialization semaphore
+XrdSysSemaphore dspSem;       // Posted when protocol dispatch ends
 time_t          conTime;      // Unix time connected
 char           *Etext;        // -> error text, if nil then no error.
 XrdSysRecMutex  opMutex;      // Serialization mutex
 int             InUse;        // Number of threads using this object
 int             doPost;       // Number of threads waiting for serialization
+int             dspCnt;       // Number of threads dispatched into the protocol
+int             dspPost;      // Number of threads waiting for dispatch to end
 int             FD;           // File descriptor for link use (may be negative)
 char            KillCnt;      // Number of times a kill has been attempted
 
@@ -55,11 +58,14 @@ void            Reset()
                       if (Etext)    {free(Etext); Etext = 0;}
                       InUse    =  1;
                       doPost   =  0;
+                      dspCnt   =  0;
+                      dspPost  =  0;
                       FD       = -1;
                       KillCnt  =  0;
                      }
 
-                XrdLinkInfo() : IOSemaphore(0, "link i/o"), Etext(0) {Reset();}
+                XrdLinkInfo() : IOSemaphore(0, "link i/o"),
+                                dspSem(0, "link dsp"), Etext(0) {Reset();}
 
                ~XrdLinkInfo() {}
 };
