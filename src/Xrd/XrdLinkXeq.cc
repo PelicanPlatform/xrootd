@@ -212,13 +212,26 @@ int XrdLinkXeq::Close(bool defer)
       }
 
 // Multiple protocols may be bound to this link. If it is in use, defer the
-// actual close until the use count drops to one.
+// actual close until the use count drops to one. Similarly, if a thread is
+// dispatched into the protocol (i.e. inside Process()), wait for it to
+// return before we recycle the protocol stack out from under it. Once both
+// counts drain we hold the opMutex until the protocol is removed, so no new
+// dispatch can slip in.
 //
-   while(LinkInfo.InUse > 1)
-      {opHelper.UnLock();
-       TRACEI(DEBUG, "Close FD "<<LinkInfo.FD <<" deferred, use count="
-                     <<LinkInfo.InUse);
-       Serialize();
+   while(LinkInfo.InUse > 1 || LinkInfo.dspCnt > 0)
+      {if (LinkInfo.InUse > 1)
+          {opHelper.UnLock();
+           TRACEI(DEBUG, "Close FD "<<LinkInfo.FD <<" deferred, use count="
+                         <<LinkInfo.InUse);
+           Serialize();
+          }
+          else
+          {LinkInfo.dspPost++;
+           opHelper.UnLock();
+           TRACEI(DEBUG, "Close FD "<<LinkInfo.FD <<" deferred, dispatch count="
+                         <<LinkInfo.dspCnt);
+           LinkInfo.dspSem.Wait();
+          }
        opHelper.Lock(&LinkInfo.opMutex);
       }
    LinkInfo.InUse--;
@@ -294,14 +307,29 @@ void XrdLinkXeq::DoIt()
 {
    int rc;
 
+// Count this thread as dispatched into the protocol so that a concurrent
+// Close() waits for the protocol call to return before recycling the protocol
+// stack (e.g. XrdHttp's SSL session) out from under Process(). We may only do
+// so while the link still has a protocol; Close() removes the protocol while
+// continuously holding the opMutex after draining dispatched threads, making
+// this check-and-count atomic with respect to link teardown. Note that we
+// cannot use setRef() for this because InUse counts threads other than the
+// one running the protocol (e.g. Serialize() called within Process() would
+// count us and deadlock).
+//
+   LinkInfo.opMutex.Lock();
+   bool isOpen = (Protocol != 0);
+   if (isOpen) LinkInfo.dspCnt++;
+   LinkInfo.opMutex.UnLock();
+
 // The Process() return code tells us what to do:
-// < 0 -> Stop getting requests, 
+// < 0 -> Stop getting requests,
 //        -EINPROGRESS leave link disabled but otherwise all is well
 //        -n           Error, disable and close the link
 // = 0 -> OK, get next request, if allowed, o/w enable the link
 // > 0 -> Slow link, stop getting requests  and enable the link
 //
-   if (Protocol)
+   if (isOpen)
       do {rc = Protocol->Process(this);} while (!rc && Sched.canStick());
       else {Log.Emsg("Link", "Dispatch on closed link", ID);
             return;
@@ -314,6 +342,16 @@ void XrdLinkXeq::DoIt()
    if (rc >= 0)
       {if (PollInfo.Poller && !PollInfo.Poller->Enable(PollInfo)) doCl = true;}
       else if (rc != -EINPROGRESS) doCl = true;
+
+// Indicate that we are no longer dispatched into the protocol, waking up any
+// thread waiting to close this link. This must be done before we ourselves
+// try to close the link lest we deadlock waiting on ourselves.
+//
+   LinkInfo.opMutex.Lock();
+   LinkInfo.dspCnt--;
+   while(LinkInfo.dspCnt == 0 && LinkInfo.dspPost)
+        {LinkInfo.dspSem.Post(); LinkInfo.dspPost--;}
+   LinkInfo.opMutex.UnLock();
 
    if (doCl)
       {if (CloseRequestCb)
