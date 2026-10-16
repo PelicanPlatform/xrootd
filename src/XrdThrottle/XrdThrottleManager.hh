@@ -227,19 +227,19 @@ std::array<Waiter, m_max_users> m_waiter_info;
 // the selection algorithm lock and fence-free.
 std::array<XrdSys::RAtomic<int16_t>, m_max_users> m_wake_order_0;
 std::array<XrdSys::RAtomic<int16_t>, m_max_users> m_wake_order_1; // A second wake order array; every recompute interval, we will swap the active array, avoiding locks.
-XrdSys::RAtomic<char> m_wake_order_active; // The current active wake order array; 0 or 1
+XrdSys::RAtomic<char> m_wake_order_active{0}; // The current active wake order array; 0 or 1
 std::atomic<size_t> m_waiter_offset{0}; // Offset inside the wake order array; this is used to wake up the next potential user in line.  Cannot be relaxed atomic as offsets need to be seen in order.
 std::chrono::steady_clock::time_point m_last_waiter_recompute_time; // Last time we recomputed the wait ordering.
 XrdSys::RAtomic<unsigned> m_waiting_users{0}; // Number of users waiting behind the throttle as of the last recompute time.
 
-std::atomic<uint32_t> m_io_active; // Count of in-progress IO operations: cannot be a relaxed atomic as ordering of inc/dec matters.
-XrdSys::RAtomic<std::chrono::steady_clock::duration::rep> m_io_active_time; // Total IO wait time recorded since the last recompute interval; reset to zero about every second.
+std::atomic<uint32_t> m_io_active{0}; // Count of in-progress IO operations: cannot be a relaxed atomic as ordering of inc/dec matters.
+XrdSys::RAtomic<std::chrono::steady_clock::duration::rep> m_io_active_time{0}; // Total IO wait time recorded since the last recompute interval; reset to zero about every second.
 XrdSys::RAtomic<uint64_t> m_io_total{0}; // Monotonically increasing count of IO operations; reset to zero about every second.
 
 int m_stable_io_active{0}; // Number of IO operations in progress as of the last recompute interval; must hold m_compute_var lock when reading/writing.
 uint64_t m_stable_io_total{0}; // Total IO operations since startup.  Recomputed every second; must hold m_compute_var lock when reading/writing.
 
-std::chrono::steady_clock::duration m_stable_io_wait; // Total IO wait time as of the last recompute interval.
+std::chrono::steady_clock::duration m_stable_io_wait{0}; // Total IO wait time as of the last recompute interval.
 
 // Load shed details
 std::string m_loadshed_host;
@@ -249,7 +249,7 @@ unsigned m_loadshed_frequency;
 // The number of times we have an I/O operation that hit the concurrency limit.
 // This is monotonically increasing and is "relaxed" because it's purely advisory;
 // ordering of the increments between threads is not important.
-XrdSys::RAtomic<int> m_loadshed_limit_hit;
+XrdSys::RAtomic<int> m_loadshed_limit_hit{0};
 
 // Maximum number of open files
 unsigned long m_max_open{0};
