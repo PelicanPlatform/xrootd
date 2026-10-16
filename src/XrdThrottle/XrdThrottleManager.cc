@@ -53,6 +53,9 @@ XrdThrottleManager::XrdThrottleManager(XrdSysError *lP, XrdOucTrace *tP) :
    m_loadshed_port(0),
    m_loadshed_frequency(0)
 {
+   // Until the first recompute fills them in, no user is in the wake order.
+   std::fill(m_wake_order_0.begin(), m_wake_order_0.end(), -1);
+   std::fill(m_wake_order_1.begin(), m_wake_order_1.end(), -1);
 }
 
 void
