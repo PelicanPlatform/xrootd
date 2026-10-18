@@ -59,10 +59,34 @@ void ResourceMonitor::CrossCheckIfScanIsInProgress(const std::string &lfn, XrdSy
    }
 }
 
-void ResourceMonitor::process_inter_dir_scan_open_requests(FsTraversal &fst)
+void ResourceMonitor::check_inter_dir_scan_open_requests()
+{
+   // Called from the scan thread between directories and periodically while reading
+   // a large directory. Rate-limit on time rather than on number of directories
+   // visited: a single directory can take minutes to stat on a large cache.
+   auto now = std::chrono::steady_clock::now();
+   if (now - m_dir_scan_last_check < s_dir_scan_check_interval)
+      return;
+   m_dir_scan_last_check = now;
+
+   process_inter_dir_scan_open_requests();
+}
+
+void ResourceMonitor::process_inter_dir_scan_open_requests()
 {
    m_dir_scan_mutex.Lock();
-   while ( ! m_dir_scan_open_requests.empty())
+   // Only service the requests present on entry. Under a steady stream of opens the
+   // queue may never become empty and the initial scan would be starved.
+   size_t n_to_process = m_dir_scan_open_requests.size();
+   if (n_to_process == 0)
+   {
+      m_dir_scan_mutex.UnLock();
+      return;
+   }
+   // Use a private traversal object: this may be called while the scan's traversal
+   // is in the middle of reading a directory.
+   FsTraversal fst(m_oss);
+   while (n_to_process-- > 0)
    {
       LfnCondRecord &lcr = m_dir_scan_open_requests.front();
       m_dir_scan_mutex.UnLock();
@@ -145,15 +169,11 @@ void ResourceMonitor::scan_dir_and_recurse(FsTraversal &fst)
       fst.m_dir_state->m_scanned = true;
    }
 
-   // Swap-out directories as inter_dir_scan can use the FsTraversal.
+   // Swap-out directories as recursion reuses the FsTraversal.
    std::vector<std::string> dirs;
    dirs.swap(fst.m_current_dirs);
 
-   if (++m_dir_scan_check_counter >= 100)
-   {
-      process_inter_dir_scan_open_requests(fst);
-      m_dir_scan_check_counter = 0;
-   }
+   check_inter_dir_scan_open_requests();
 
    // Descend into sub-dirs, do not accumulate into recursive_subdir_usage yet. This is done
    // in a separate pass to allow for proper accounting of files being opened during the initial scan.
@@ -178,13 +198,13 @@ bool ResourceMonitor::perform_initial_scan()
    DirState   *root_ds = m_fs_state.get_root();
    FsTraversal fst(m_oss);
    fst.m_protected_top_dirs.insert("pfc-stats"); // XXXX This should come from config. Also: N2N?
+   // Keep servicing file-open requests while reading huge directories.
+   fst.m_readdir_hook = [this]() { check_inter_dir_scan_open_requests(); };
 
    if ( ! fst.begin_traversal(root_ds, "/"))
       return false;
 
-   // The following are initialized in ResourceMonitor.hh to avoid a race at startup:
-   //   m_dir_scan_in_progress = true;
-   //   m_dir_scan_check_counter = 0;
+   // m_dir_scan_in_progress is initialized to true in ResourceMonitor.hh to avoid a race at startup.
 
    scan_dir_and_recurse(fst);
 
@@ -195,7 +215,6 @@ bool ResourceMonitor::perform_initial_scan()
    {
       XrdSysMutexHelper _lock(m_dir_scan_mutex);
       m_dir_scan_in_progress = false;
-      m_dir_scan_check_counter = 0;
    }
    // m_dir_scan_open_requests should now be final, ie, no new entries will be added.
    while ( ! m_dir_scan_open_requests.empty())
