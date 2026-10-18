@@ -159,8 +159,12 @@ void FsTraversal::slurp_dir_ll(XrdOssDF &dh, int dir_level, const char *path, co
    m_current_dirs.clear();
    m_current_files.clear();
 
+   int n_entries = 0;
    while (true)
    {
+      if (m_readdir_hook && ++n_entries % s_readdir_hook_period == 0)
+         m_readdir_hook();
+
       int rc = dh.Readdir(fname, 256);
 
       if (rc == -ENOENT)

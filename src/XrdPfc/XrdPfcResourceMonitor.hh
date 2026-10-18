@@ -5,6 +5,7 @@
 
 #include "XrdSys/XrdSysPthread.hh"
 
+#include <chrono>
 #include <string>
 #include <vector>
 #include <list>
@@ -128,10 +129,15 @@ class ResourceMonitor
 
    XrdSysMutex              m_dir_scan_mutex;
    std::list<LfnCondRecord> m_dir_scan_open_requests;
-   int                      m_dir_scan_check_counter = 0;
    bool                     m_dir_scan_in_progress = true;
 
-   void process_inter_dir_scan_open_requests(FsTraversal &fst);
+   // Open requests are serviced from the scan thread at most this often; an open
+   // waits for roughly this long (plus the time to scan its own directory).
+   static constexpr std::chrono::milliseconds s_dir_scan_check_interval{100};
+   std::chrono::steady_clock::time_point      m_dir_scan_last_check;
+
+   void check_inter_dir_scan_open_requests();
+   void process_inter_dir_scan_open_requests();
    void cross_check_or_process_oob_lfn(const std::string &lfn, FsTraversal &fst);
    long long get_file_usage_bytes_to_remove(const DataFsPurgeshot &ps, long long previous_file_usage, int logLeve);
 

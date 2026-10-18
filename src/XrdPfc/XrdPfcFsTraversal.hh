@@ -4,6 +4,7 @@
 #include "XrdOss/XrdOssAt.hh"
 #include "XrdOuc/XrdOucEnv.hh"
 
+#include <functional>
 #include <string>
 #include <vector>
 #include <map>
@@ -52,6 +53,12 @@ public:
    std::map<std::string, FilePairStat> m_current_files; // clear when done
 
    std::set<std::string> m_protected_top_dirs;          // directories that will NOT be traversed at relative level 0.
+
+   // Optional callback invoked every s_readdir_hook_period entries while a directory
+   // is being read, so long reads of a single huge directory can yield to other work.
+   // The callback must not use this FsTraversal object.
+   std::function<void()> m_readdir_hook;
+   static const int      s_readdir_hook_period = 1024;
 
    static const char *m_traceID;
 
